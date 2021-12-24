@@ -55,6 +55,7 @@ import hashlib
 import os
 import re
 from contextlib import contextmanager
+from itertools import accumulate
 from pathlib import Path
 from typing import Dict, Union
 
@@ -141,68 +142,42 @@ class Paragraph(VGroup):
     """
 
     def __init__(self, *text, line_spacing=-1, alignment=None, **config):
+        config["disable_ligatures"] = True
         self.line_spacing = line_spacing
         self.alignment = alignment
         super().__init__()
 
+        # `self.lines_text` is already formatted as a paragraph
+        # but we want to be able to index by line and then by character
+        # so we copy over to`self.chars` (preserving the positions)
         lines_str = "\n".join(list(text))
         self.lines_text = Text(lines_str, line_spacing=line_spacing, **config)
-        lines_str_list = lines_str.split("\n")
-        self.chars = self.gen_chars(lines_str_list)
 
-        chars_lines_text_list = self.get_group_class()()
-        char_index_counter = 0
-        for line_index in range(lines_str_list.__len__()):
-            chars_lines_text_list.add(
-                self.lines_text[
-                    char_index_counter : char_index_counter
-                    + lines_str_list[line_index].__len__()
-                    + 1
-                ],
+        # `line_boundaries` is the list of tuples of indices delimiting
+        # the lines in `lines_str`, accounting for '\n'
+        # `lines_str = "first\nsecond\nthird"`
+        # `line_boundaries = [(0, 5), (6, 12), (13, 18)]`
+        lines_str_list = lines_str.split("\n")
+        line_lengths = list(map(len, lines_str_list))
+        line_boundaries = [
+            (cumulative_char_qty - line_char_qty, cumulative_char_qty)
+            for (line_char_qty, cumulative_char_qty) in zip(
+                line_lengths, accumulate(line_lengths, lambda x, y: x + y + 1)
             )
-            char_index_counter += lines_str_list[line_index].__len__() + 1
-        self.lines = []
-        self.lines.append([])
-        for line_no in range(chars_lines_text_list.__len__()):
-            self.lines[0].append(chars_lines_text_list[line_no])
-        self.lines_initial_positions = []
-        for line_no in range(self.lines[0].__len__()):
-            self.lines_initial_positions.append(self.lines[0][line_no].get_center())
-        self.lines.append([])
-        self.lines[1].extend(
-            [self.alignment for _ in range(chars_lines_text_list.__len__())],
-        )
+        ]
+
+        # `self.chars` is the 2d array of
+        self.chars = VGroup(*[self.lines_text[i:j] for (i, j) in line_boundaries])
+
+        # lines, alignments, and initial positions
+        self.lines = [self.chars, len(self.chars) * [self.alignment]]
+        self.initial_positions = [line.get_center() for line in self.lines[0]]
+
+        # add to scene and align
         self.add(*self.lines[0])
         self.move_to(np.array([0, 0, 0]))
         if self.alignment:
             self.set_all_lines_alignments(self.alignment)
-
-    def gen_chars(self, lines_str_list):
-        """Function to convert plain string to 2d-VGroup of chars. 2d-VGroup mean "VGroup of VGroup".
-
-        Parameters
-        ----------
-        lines_str_list : :class:`str`
-            Plain text string.
-
-        Returns
-        -------
-        :class:`~.VGroup`
-            The generated 2d-VGroup of chars.
-        """
-        char_index_counter = 0
-        chars = self.get_group_class()()
-        for line_no in range(lines_str_list.__len__()):
-            chars.add(self.get_group_class()())
-            chars[line_no].add(
-                *self.lines_text.chars[
-                    char_index_counter : char_index_counter
-                    + lines_str_list[line_no].__len__()
-                    + 1
-                ]
-            )
-            char_index_counter += lines_str_list[line_no].__len__() + 1
-        return chars
 
     def set_all_lines_alignments(self, alignment):
         """Function to set all line's alignment to a specific value.
